@@ -128,9 +128,9 @@ flowchart LR
 2. The platform notifies the responsible team (and whoever made the deploy, and relevant management) and auto-assigns an available owner; if no one responds within a set time, it escalates to the next level.
 3. The platform automatically retrieves logs and metrics for the incident window.
 4. It classifies and investigates the evidence and proposes a diagnosis (e.g., "this config value changed at the same time the errors started").
-5. It proposes a fix and requests human approval.
-6. Once approved, the fix is tested in a sandbox, not production.
-7. A human approves deployment of the tested fix.
+5. The platform proposes a fix and automatically tests it in an isolated sandbox environment (no human approval required to test in sandbox).
+6. Once sandbox validation succeeds, the platform presents the diagnosis, proposed fix, and sandbox test results to the human and requests approval for production deployment.
+7. Upon human approval, the AI platform executes the deployment to production (with rollback ready).
 8. The platform verifies recovery against an agreed baseline, not just the absence of the original symptom, and closes the incident.
 
 ```mermaid
@@ -142,26 +142,25 @@ flowchart TD
     S3["3. Auto-retrieve logs and metrics<br/>for incident window"]
     S4["4. Classify, investigate,<br/>propose diagnosis"]
     S5["5. Propose fix"]
-    H1{{"HUMAN: approve fix?"}}
-    S6["6. Test fix in sandbox<br/>not production"]
-    H2{{"HUMAN: approve production deployment?"}}
-    S7["Deploy to production"]
+    S6["6. Test fix in sandbox<br/>(autonomous, isolated)"]
+    SBT{"Sandbox tests pass?"}
+    H1{{"HUMAN: approve production deployment?<br/>(reviews diagnosis & sandbox results)"}}
+    S7["7. Deploy to production (by AI)"]
     S8["8. Verify recovery against<br/>agreed baseline, held for agreed period"]
     OK{"Baseline met and<br/>independently verified?"}
     CLOSE(["Incident closed"])
 
     S1 --> S2 --> ESC
     ESC -- No --> ESC2 --> ESC
-    ESC -- Yes --> S3 --> S4 --> S5 --> H1
-    H1 -- Rejected --> S4
-    H1 -- Approved --> S6 --> H2
-    H2 -- Rejected --> S5
-    H2 -- Approved --> S7 --> S8 --> OK
+    ESC -- Yes --> S3 --> S4 --> S5 --> S6 --> SBT
+    SBT -- No --> S4
+    SBT -- Yes --> H1
+    H1 -- Rejected --> S5
+    H1 -- Approved --> S7 --> S8 --> OK
     OK -- No --> S4
     OK -- Yes --> CLOSE
 
     style H1 fill:#fde68a,stroke:#b45309,color:#000
-    style H2 fill:#fde68a,stroke:#b45309,color:#000
     style CLOSE fill:#bbf7d0,stroke:#15803d,color:#000
 ```
 
@@ -184,13 +183,11 @@ sequenceDiagram
     AI->>Own: Notify and auto-assign (escalate if no response)
     AI->>App: Retrieve logs and metrics for incident window
     AI->>AI: Classify evidence, propose diagnosis
-    AI->>Own: Proposed fix, request approval
-    Own-->>AI: Approve fix
-    AI->>SB: Test fix in sandbox
-    SB-->>AI: Test results
-    AI->>Own: Request approval to deploy tested fix
+    AI->>SB: Propose and test fix in sandbox (autonomous)
+    SB-->>AI: Sandbox test results (passed)
+    AI->>Own: Present diagnosis, fix & sandbox results; request deploy approval
     Own-->>AI: Approve deployment
-    AI->>Prod: Deploy fix (rollback available)
+    AI->>Prod: Deploy fix to production (executed by AI, rollback available)
     AI->>Mon: Verify recovery against baseline
     Mon-->>AI: Baseline met and held
     AI->>Own: Close incident with full audit log
@@ -202,15 +199,14 @@ Every action the platform takes — what it retrieved, from where, what it decid
 
 ### Where humans must be in the loop
 
-Of all the decision points in this journey, **two are the real choke points for irreversible risk: the code merge and the production deployment.** Gating those two is enough to control most of the irreversible-change risk without putting a human in front of every step.
+Testing fixes in a sandbox is completely isolated and runs autonomously without human intervention. Of all the decision points in this journey, **the true choke point for irreversible risk is the production deployment (and code merge).** Human approval is requested strictly after sandbox testing has succeeded and before production deployment; once approved, deployment is executed by the AI platform.
 
 ```mermaid
 flowchart LR
     A["Detect"] --> B["Investigate"] --> C["Diagnose"] --> D["Propose fix"]
     D --> E["Sandbox test"]
-    E --> G1{{"GATE 1<br/>Human approves code merge"}}
-    G1 --> G2{{"GATE 2<br/>Human approves prod deployment"}}
-    G2 --> F["Verify"] --> H["Close"]
+    E --> G1{{"HUMAN GATE<br/>Approve production deployment"}}
+    G1 --> F["AI deploys to prod"] --> V["Verify"] --> H["Close"]
     subgraph Autonomous
         A
         B
@@ -219,7 +215,6 @@ flowchart LR
         E
     end
     style G1 fill:#fde68a,stroke:#b45309,color:#000
-    style G2 fill:#fde68a,stroke:#b45309,color:#000
 ```
 
 ---
@@ -229,8 +224,8 @@ flowchart LR
 *Answers: Q1.9, Q1.10, Q1.11, Q1.12, Q1.13, Q1.14*
 
 1. **Immediate response to a new incident.** Identify the originating service, produce a fast consolidated summary rather than making the engineer wait for a full investigation, and identify the area of impact (how many services/systems are affected).
-2. **Investigation, not just explanation.** A plain debugging assistant can explain an error but can't act on it. This platform needs a **harness**: a component that can call tools, retrieve the codebase, and propose and test fixes in a sandbox, with the reasoning component (the model) directing the harness rather than acting directly on production.
-3. **Tiered approval for fixes that could affect production.** Minor, reversible changes can be approved by the on-duty engineer directly; higher-risk changes need a named owner (with backup) and escalate if nobody responds in time. The platform should make explicit who is actually empowered to accept a given risk, since that isn't always the nominal application owner.
+2. **Investigation, not just explanation.** A plain debugging assistant can explain an error but can't act on it. This platform needs a **harness**: a component that can call tools, retrieve the codebase, and propose and test fixes in an isolated sandbox autonomously, with the reasoning component (the model) directing the harness rather than acting directly on production.
+3. **Tiered approval before production deployment.** Fixes are tested autonomously in a sandbox, but deployment to production requires human approval. Minor, reversible changes can be approved by the on-duty engineer directly; higher-risk changes need a named owner (with backup) and escalate if nobody responds in time. The platform should make explicit who is actually empowered to accept a given risk, since that isn't always the nominal application owner. Once approved, deployment is executed by the AI.
 4. **Independent verification of a repair.** The platform's own claim that something is fixed is not sufficient evidence. Recovery is confirmed against an agreed baseline (not just "the error stopped"), held for an agreed period, with human or automated-test validation before an incident is closed.
 5. **Honest behavior under incomplete telemetry.** When it cannot establish a root cause because evidence is incomplete, the platform says so explicitly, states what's missing and how confident it is, and asks for that specific missing information rather than guessing.
 6. **Going beyond suggestion to investigation, coordination, and verification.** This is the line between a debugging assistant and an engineering platform. The platform decides which tasks to hand off to automation versus keep with engineers, and a human stays accountable for outcomes even when the platform is the one that acted.
@@ -273,10 +268,10 @@ flowchart LR
     M["Reasoning component<br/>(the model)"] -- directs --> H["Harness"]
     H --> T1["Tool calls"]
     H --> T2["Codebase retrieval"]
-    H --> T3["Sandbox: propose and test fixes"]
-    H -. "no direct action" .-> X["Production"]
-    T3 --> G{{"Human approval gate"}}
-    G --> X
+    H --> T3["Sandbox: propose and test fixes<br/>(autonomous)"]
+    H -. "no direct action without approval" .-> X["Production"]
+    T3 --> G{{"Human approval gate<br/>(deploy to production)"}}
+    G -- Approved --> D["AI executes deployment"] --> X
     style X fill:#fecaca,stroke:#b91c1c,color:#000
     style G fill:#fde68a,stroke:#b45309,color:#000
 ```
@@ -329,10 +324,11 @@ flowchart TD
 
 *Answers: Q1.11, Q1.19, Q1.22*
 
-- The platform **may** investigate, diagnose, and propose fixes autonomously.
-- The platform **may not** merge code or deploy to production without explicit human approval — these are the two gated choke points for irreversible changes.
+- The platform **may** investigate, diagnose, propose fixes, and test fixes in an isolated sandbox autonomously (no human approval required to test in sandbox).
+- The platform **may not** merge code or deploy to production without explicit human approval — sandbox testing is autonomous, but production changes are strictly gated.
 - Minor, reversible changes may be approved by the on-duty engineer; anything above that risk tier requires a named owner or escalation.
-- Every proposed fix is tested in a sandbox before any production change is requested.
+- Deployment to production is executed by the AI platform, but strictly *after* human approval.
+- Every proposed fix must be tested in a sandbox before any production deployment approval is requested.
 - Rollback must always be possible for any change the platform helps make.
 - The platform may not declare an incident resolved on the strength of its own claim alone — resolution requires independent verification against a baseline.
 
@@ -345,14 +341,13 @@ flowchart LR
         M4["Test fixes in sandbox"]
     end
     subgraph NEEDS["Requires human approval"]
-        N1["Merge code"]
-        N2["Deploy to production"]
-        N3["Risk above minor tier:<br/>named owner or escalation"]
+        N1["Deploy to production / Merge code"]
+        N2["Risk above minor tier:<br/>named owner or escalation"]
     end
     subgraph NEVER["Platform MAY NOT"]
         X1["Declare resolved on its own claim alone"]
         X2["Make a change without rollback"]
-        X3["Skip sandbox before requesting prod change"]
+        X3["Deploy to prod without sandbox testing & human approval"]
     end
     style MAY fill:#bbf7d0,stroke:#15803d,color:#000
     style NEEDS fill:#fde68a,stroke:#b45309,color:#000
@@ -367,11 +362,11 @@ flowchart LR
 
 ### Minimum viable scope (6-month / small-budget build)
 
-Apply a Pareto-style cut: build a **thin, working, end-to-end slice** through the full incident lifecycle (**detect → investigate → propose → approve → verify**) rather than full depth at every layer. The full set of capabilities in 1.4 is the target; the MVP should demonstrate the shape of all of them even if simplified.
+Apply a Pareto-style cut: build a **thin, working, end-to-end slice** through the full incident lifecycle (**detect → investigate → propose & sandbox test → approve → deploy → verify**) rather than full depth at every layer. The full set of capabilities in 1.4 is the target; the MVP should demonstrate the shape of all of them even if simplified.
 
 ```mermaid
 flowchart LR
-    D["Detect"] --> I["Investigate"] --> P["Propose"] --> A["Approve"] --> V["Verify"]
+    D["Detect"] --> I["Investigate"] --> P["Propose & Sandbox Test"] --> A["Human Approve"] --> DP["AI Deploy"] --> V["Verify"]
     note["MVP: thin slice across ALL stages<br/>breadth over depth"] -.-> D
     note -.-> V
     style note fill:#e0e7ff,stroke:#4338ca,color:#000
@@ -379,7 +374,7 @@ flowchart LR
 
 ### Demonstration
 
-Incident occurs → system detects and notifies → system investigates and proposes a fix → human approves → fix is tested in a sandbox → human approves deployment → recovery is verified against baseline → incident closes. This sequence, run live on the reference scenario, is the core demo.
+Incident occurs → system detects and notifies → system investigates, proposes a fix, and tests it in sandbox (autonomously) → human reviews sandbox results and approves deployment → AI executes production deployment → recovery is verified against baseline → incident closes. This sequence, run live on the reference scenario, is the core demo.
 
 ### Measurable outcomes for management
 
@@ -408,7 +403,7 @@ flowchart LR
 
 ## 1.7 Explicit non-goals
 
-- The platform does **not** act fully autonomously: it does not deploy, merge, or apply production changes without explicit human approval.
+- The platform does **not** act fully autonomously in production: it does not deploy, merge, or apply production changes without explicit human approval (autonomous action is safely confined to investigation, diagnosis, and sandbox testing; deployment is executed by AI only after human approval).
 - The platform does **not** treat a single, unverified success signal (including its own claim) as proof that an incident is resolved.
 - The platform does **not** attempt full-depth coverage of every capability in the first build — the MVP favors breadth across the lifecycle over depth in any one stage.
 
@@ -429,13 +424,11 @@ stateDiagram-v2
     Investigating --> NeedsMoreData: evidence incomplete
     NeedsMoreData --> Investigating: missing info supplied
     DiagnosisProposed --> FixProposed
-    FixProposed --> AwaitingFixApproval
-    AwaitingFixApproval --> SandboxTesting: approved
-    AwaitingFixApproval --> Investigating: rejected
-    SandboxTesting --> AwaitingDeployApproval: tests pass
-    SandboxTesting --> FixProposed: tests fail
-    AwaitingDeployApproval --> Deployed: approved
-    AwaitingDeployApproval --> FixProposed: rejected
+    FixProposed --> SandboxTesting: auto-deploy to sandbox
+    SandboxTesting --> FixProposed: sandbox tests fail
+    SandboxTesting --> AwaitingDeployApproval: sandbox tests pass
+    AwaitingDeployApproval --> FixProposed: rejected by human
+    AwaitingDeployApproval --> Deployed: approved by human (deployed by AI)
     Deployed --> Verifying
     Verifying --> Closed: baseline met and independently verified
     Verifying --> Investigating: baseline not met
