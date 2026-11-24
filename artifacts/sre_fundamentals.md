@@ -36,7 +36,7 @@ flowchart LR
 | **§ 2. Concurrency & Resource Saturation** | Q3.2, Q3.23, Q3.24, Q3.25 | Worker load shedding, CPU run queue/load average, memory leak slopes, and queue lag metrics. |
 | **§ 3. Request Lifecycle & Error Taxonomy** | Q3.3, Q3.10, Q3.11, Q3.18, Q3.21 | 7-stage internal pipeline, 5xx clue rule, 40% partial failure clustering, and p95/p99 latency. |
 | **§ 4. Deployment Pipeline, Regression & Rollback** | Q3.6, Q3.7, Q3.8, Q3.14, Q3.26, Q3.27 | 4-phase canary pipeline, Git Bisect, config diff isolation, safe rollback sequence, and causation proof. |
-| **§ 5. Incident Lifecycle & State Machine** | Q3.9, Q3.13, Q3.15, Q3.16 | 5 pre-filter declaration triggers, Two-Track resolution, PRD 11-state machine, and escalation ledger. |
+| **§ 5. Incident Lifecycle & State Machine** | Q3.9, Q3.13, Q3.15, Q3.16 | 5 pre-filter declaration triggers, Two-Track resolution, PRD state machine (autonomous sandbox, single deployment gate), and escalation ledger. |
 | **§ 6. Observability Telemetry Standards** | Q3.17, Q3.19, Q3.20, Q3.28, Q3.29, Q3.30 | JSON structured logs, OpenTelemetry + W3C context propagation, dual-role telemetry, and dashboard UX. |
 | **§ 7. Investigation Engine & Adapter Architecture** | Q3.12, Q3.31, Q3.32, Q3.33, Q3.34, Q3.35, Q3.36, Q3.37 | Hypothesis-driven loop, Ports & Adapters, ordered evidence gathering, resilience, and stop conditions. |
 
@@ -226,8 +226,10 @@ Once root cause is identified, the team executes two tracks in parallel:
 * **Track B: Permanent Root-Cause Repair:** Develop a clean code/config patch on a sandbox branch, run regression tests, obtain human approval, and deploy.
 * **The Closure Rule:** *"Service Restored"* (Track A) and *"Incident Closed"* (Track B) are separate states. The incident remains open until Track B verifies baseline recovery.
 
-### 5.3 The PRD 11-State Incident Machine (Q3.15)
-Every incident progresses through an authoritative state machine stored in an append-only PostgreSQL database table (Layer 2.21):
+### 5.3 The PRD Incident State Machine (Q3.15)
+Every incident progresses through an authoritative state machine stored in an append-only PostgreSQL database table (Layer 2.21). 
+
+**Single Human Approval Gate Policy:** In accordance with Layer 2 constraints, **sandbox verification runs completely autonomously** without human intervention. There is no human approval required to test in the isolated sandbox. Human authorization is strictly reserved for production deployment (`AwaitingDeployApproval`):
 
 ```mermaid
 stateDiagram-v2
@@ -236,15 +238,14 @@ stateDiagram-v2
     Notified --> Investigating: Telemetry Ingested
     Investigating --> DiagnosisProposed: Root Cause Hypothesized
     DiagnosisProposed --> FixProposed: Patch / Revert Created
-    FixProposed --> AwaitingFixApproval: Human Gate 1 (Review)
-    AwaitingFixApproval --> SandboxTesting: Approved
-    AwaitingFixApproval --> Investigating: Rejected
-    SandboxTesting --> AwaitingDeployApproval: Tests Pass
-    SandboxTesting --> Investigating: Tests Fail
-    AwaitingDeployApproval --> Deployed: Human Gate 2 (Deploy)
+    FixProposed --> SandboxTesting: Autonomous Sandbox Execution
+    SandboxTesting --> AwaitingDeployApproval: Tests Pass (Ready for Human Gate)
+    SandboxTesting --> Investigating: Tests Fail (Refine Hypothesis)
+    AwaitingDeployApproval --> Deployed: Human Approves Deployment
+    AwaitingDeployApproval --> Investigating: Human Rejects / Modifies
     Deployed --> Verifying: Canary Active
     Verifying --> Closed: Baseline Met & Held
-    Verifying --> Investigating: Metrics Degrade
+    Verifying --> Investigating: Metrics Degrade (Auto-Rollback)
     Closed --> [*]
 ```
 

@@ -205,8 +205,8 @@ Testing fixes in a sandbox is completely isolated and runs autonomously without 
 flowchart LR
     A["Detect"] --> B["Investigate"] --> C["Diagnose"] --> D["Propose fix"]
     D --> E["Sandbox test"]
-    E --> G1{{"HUMAN GATE<br/>Approve production deployment"}}
-    G1 --> F["AI deploys to prod"] --> V["Verify"] --> H["Close"]
+    E --> HG{{"HUMAN GATE<br/>Approve production deployment"}}
+    HG --> F["AI deploys to prod"] --> V["Verify"] --> H["Close"]
     subgraph Autonomous
         A
         B
@@ -214,7 +214,7 @@ flowchart LR
         D
         E
     end
-    style G1 fill:#fde68a,stroke:#b45309,color:#000
+    style HG fill:#fde68a,stroke:#b45309,color:#000
 ```
 
 ---
