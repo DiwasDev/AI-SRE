@@ -12,7 +12,7 @@ Layer 2 established the strict operational boundaries for the 6-month Minimum Vi
 **Layer 3 establishes the architectural, operational, and diagnostic fundamentals** that govern how the AI SRE platform interacts with production applications. It defines:
 1. The **exact request journey** and where the platform's diagnostic authority begins and ends.
 2. The **mechanics of failure**: distinguishing outages from latency degradation, memory leaks from traffic bursts, and correlation from causation.
-3. The **systematic investigation protocol**: hypothesis-driven reasoning, ordered evidence collection, and the 11-state incident machine.
+3. The **systematic investigation protocol**: hypothesis-driven reasoning, ordered evidence collection, and the 9-state incident machine.
 4. The **vendor-neutral integration fabric**: standardizing on OpenTelemetry, W3C headers, and the Ports & Adapters pattern.
 
 ```mermaid
@@ -176,7 +176,7 @@ sequenceDiagram
         Prod->>Prod: Promote to 100% Traffic
     else Metrics Degrade
         Mon->>AI: Trigger Alert (Incident Window Open)
-        AI->>Prod: Propose Automated Canary Rollback
+        AI->>Prod: Trigger Automated Canary Rollback
     end
 ```
 
@@ -193,11 +193,11 @@ When a deployment bundles multiple commits and introduces a failure:
 * *Large Release (Many commits):* Execute an automated **Git Bisect** routine within the test sandbox, performing a binary search between the last known good commit and the current release until the breaking commit is isolated.
 
 ### 4.4 Automated 5-Step Canary Rollback (Q3.14)
-* **The Layer 2 Assumption 5 Guardrail:** Automated rollback is an architecture-breaking assumption that must be validated in Sprint 3 (ADR-06).
+* **The Layer 2 Assumption 5 Guardrail:** Automated rollback is an architecture-breaking assumption that must be validated in Sprint 3.
 * **Rollback Protocol:**
   1. *Identify Baseline:* Retrieve commit SHA and deployment ID of previous stable release.
   2. *Trigger via CI/CD:* Issue rollback deployment via pipeline API (never manual file editing).
-  3. *Human Gate Authorization:* Single-gate human approval authorizes the rollback execution.
+  3. *Autonomous Emergency Execution:* If post-deploy canary metrics degrade against baseline, the platform triggers automated rollback immediately without waiting for human re-approval (forward production deployments remain strictly behind the single human approval gate).
   4. *Canary Rollback:* Shift traffic gradually (10% $\rightarrow$ 50% $\rightarrow$ 100%) to verify error recovery.
   5. *Verify Recovery:* Compare error rates and p95 latency against pre-incident baselines before closing.
 
@@ -229,7 +229,7 @@ Once root cause is identified, the team executes two tracks in parallel:
 ### 5.3 The PRD Incident State Machine (Q3.15)
 Every incident progresses through an authoritative state machine stored in an append-only PostgreSQL database table (Layer 2.21). 
 
-**Single Human Approval Gate Policy:** In accordance with Layer 2 constraints, **sandbox verification runs completely autonomously** without human intervention. There is no human approval required to test in the isolated sandbox. Human authorization is strictly reserved for production deployment (`AwaitingDeployApproval`):
+**Single Human Approval Gate Policy:** In accordance with Layer 2 constraints, **candidate fix generation and sandbox verification run completely autonomously** without proposing a fix to a human or requiring human intervention. Only *after* sandbox tests pass is the verified fix proposed to a human at the single production deployment gate (`AwaitingDeployApproval`):
 
 ```mermaid
 stateDiagram-v2
@@ -237,10 +237,9 @@ stateDiagram-v2
     Detected --> Notified: Owner Assigned
     Notified --> Investigating: Telemetry Ingested
     Investigating --> DiagnosisProposed: Root Cause Hypothesized
-    DiagnosisProposed --> FixProposed: Patch / Revert Created
-    FixProposed --> SandboxTesting: Autonomous Sandbox Execution
-    SandboxTesting --> AwaitingDeployApproval: Tests Pass (Ready for Human Gate)
-    SandboxTesting --> Investigating: Tests Fail (Refine Hypothesis)
+    DiagnosisProposed --> SandboxTesting: Generate & Test Candidate Fix in Sandbox
+    SandboxTesting --> AwaitingDeployApproval: Sandbox Tests Pass (Propose Verified Fix at Human Gate)
+    SandboxTesting --> Investigating: Sandbox Tests Fail (Refine Hypothesis)
     AwaitingDeployApproval --> Deployed: Human Approves Deployment
     AwaitingDeployApproval --> Investigating: Human Rejects / Modifies
     Deployed --> Verifying: Canary Active
@@ -370,11 +369,11 @@ The platform immediately halts autonomous reasoning and escalates when:
 | :--- | :--- | :---: | :---: | :--- |
 | **REQ-3.1** | Standardize on OpenTelemetry and W3C `traceparent` headers | Requirement | Tech Lead | Validated on multi-service test request in Sprint 2. |
 | **REQ-3.2** | Adapter Pattern enforced for all external telemetry and CI/CD tools | Requirement | Tech Lead | Mock adapters verified in sandbox testing (Sprint 2). |
-| **REQ-3.3** | 11-State Incident Machine stored in append-only PostgreSQL table | Requirement | Tech Lead | State transitions audit-verified in Sprint 2. |
+| **REQ-3.3** | 9-State Incident Machine stored in append-only PostgreSQL table | Requirement | Tech Lead | State transitions audit-verified in Sprint 2. |
 | **REQ-3.4** | Bounded dual integration for error tracking (Webhook push + API pull) | Requirement | DevOps Lead | Verified against staging Sentry instance in Sprint 3. |
 | **REQ-3.5** | Pre-filter drops non-qualifying alerts at \$0 LLM cost | Requirement | Tech Lead | Unit tested against 100 synthetic noisy alerts in Sprint 2. |
 | **ASM-3.1** | Target application emits structured JSON logs with Request/Trace IDs | Assumption | Tech Lead | Trigger config bug on test copy; verify log output (Sprint 2). |
 | **ASM-3.2** | Target CI/CD tool exposes queryable deployment diffs via webhook | Assumption | DevOps Lead | Ingest test deployment webhook payload in Sprint 3 (ADR-03). |
-| **ASM-3.3** | Target application supports automated canary rollback via pipeline | Assumption | DevOps Lead | Validate 1-click rollback on staging in Sprint 3 (ADR-06). |
+| **ASM-3.3** | Target application supports automated canary rollback via pipeline | Assumption | DevOps Lead | Validate 1-click rollback on staging in Sprint 3 (Layer 2 Assumption 5). |
 | **ASM-3.4** | Monitoring tool provides p50/p95/p99 latency percentiles via API | Assumption | DevOps Lead | Query Prometheus/Datadog API for latency percentiles in Sprint 3. |
 | **ASM-3.5** | Target organization provides quantified SLA and user impact thresholds | Assumption | Eng Manager | Sign-off on incident declaration thresholds in Sprint 1 (ADR-04). |

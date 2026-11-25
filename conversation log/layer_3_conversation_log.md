@@ -1,4 +1,4 @@
-# Layer 3 â€” Architecture & Design: Conversation Log
+﻿# Layer 3 â€” Architecture & Design: Conversation Log
 
 | Questions | Agent Conversation Link / Summary | Approved Decision | Open Unknowns & Owner | Artifact Section |
 | :--- | :--- | :--- | :--- | :--- |

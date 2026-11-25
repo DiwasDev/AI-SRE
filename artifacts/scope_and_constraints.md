@@ -84,10 +84,12 @@ flowchart TD
         Sandbox["Ephemeral Docker Sandbox<br/>(Clean Environment per Incident)"]
     end
 
+    TargetApp["Target Python Web App<br/>(Production Host)"]
+
     FixGen -->|"Mount & Test Proposed Fix (Autonomous)"| Sandbox
     Sandbox -->|"Verification Results (Pass/Fail)"| ApprovalMgr
     ApprovalMgr -->|"Human Approves Production Deploy"| Deployer
-    Deployer -->|"Execute Rollback-Ready Deploy"| Cloud_VM
+    Deployer -->|"Execute Rollback-Ready Deploy"| TargetApp
     style Docker_Compose fill:#eff6ff,stroke:#1e40af,color:#000
     style Sandbox fill:#fef2f2,stroke:#dc2626,color:#000
 ```
